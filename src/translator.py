@@ -29,8 +29,43 @@ class ConfigError(Exception):
         super().__init__(f"{line}:{column}: {message}")
 
 
+def _skip_comment(source: str, index: int) -> int:
+
+    end = source.find("\n", index)
+    return len(source) if end == -1 else end
+
+
+def _read_token(
+    source: str,
+    index: int,
+    line: int,
+    column: int,
+) -> Token:
+
+    char = source[index]
+
+    if char in "#(),;=?[]":
+        return Token(char, char, line, column)
+
+    if char.isdigit():
+        match = NUMBER_PATTERN.match(source, index)
+        if match is None:
+            raise ConfigError(
+                "ожидалось восьмеричное число вида 00[0-7]+",
+                line,
+                column,
+            )
+        return Token("NUMBER", match.group(), line, column)
+
+    if char == "_" or "a" <= char <= "z":
+        match = NAME_PATTERN.match(source, index)
+        assert match is not None
+        return Token("NAME", match.group(), line, column)
+
+    raise ConfigError(f"недопустимый символ {char!r}", line, column)
+
+
 def tokenize(source: str) -> list[Token]:
-    """Разбить исходный текст на лексемы."""
 
     tokens: list[Token] = []
     index = 0
@@ -44,51 +79,16 @@ def tokenize(source: str) -> list[Token]:
             index += 1
             line += 1
             column = 1
-            continue
-
-        if char.isspace():
+        elif char.isspace():
             index += 1
             column += 1
-            continue
-
-        if char == "%":
-            end = source.find("\n", index)
-            index = len(source) if end == -1 else end
-            continue
-
-        start_line = line
-        start_column = column
-
-        if char in "#(),;=?[]":
-            tokens.append(Token(char, char, line, column))
-            index += 1
-            column += 1
-            continue
-
-        if char.isdigit():
-            match = NUMBER_PATTERN.match(source, index)
-            if match is None:
-                raise ConfigError(
-                    "ожидалось восьмеричное число вида 00[0-7]+",
-                    line,
-                    column,
-                )
-            text = match.group()
-            tokens.append(Token("NUMBER", text, line, column))
-            index += len(text)
-            column += len(text)
-            continue
-
-        if char == "_" or "a" <= char <= "z":
-            match = NAME_PATTERN.match(source, index)
-            assert match is not None
-            text = match.group()
-            tokens.append(Token("NAME", text, line, column))
-            index += len(text)
-            column += len(text)
-            continue
-
-        raise ConfigError(f"недопустимый символ {char!r}", line, column)
+        elif char == "%":
+            index = _skip_comment(source, index)
+        else:
+            token = _read_token(source, index, line, column)
+            tokens.append(token)
+            index += len(token.text)
+            column += len(token.text)
 
     tokens.append(Token("EOF", "", line, column))
     return tokens
